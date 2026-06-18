@@ -2,51 +2,18 @@ version: '3.8'
 
 services:
   aionui:
-    build:
-      context: .
-      dockerfile_inline: |
-        FROM oven/bun:latest
-        WORKDIR /app
-
-        # Instalar librerías básicas esenciales del sistema operativo
-        RUN apt-get update && apt-get install -y --no-install-recommends \
-            libicu-dev \
-            python3 \
-            make \
-            g++ \
-            gcc \
-            && rm -rf /var/lib/apt/lists/*
-
-        # Copiar las configuraciones del monorrepo
-        COPY package.json bun.lock ./
-        COPY patches/ ./patches/
-        COPY packages/ ./packages/
-
-        # Instalar todas las dependencias sin ignorar scripts por si los módulos de Rust/C++ los necesitan en ARM
-        RUN bun install
-
-        # Copiar el resto de los archivos del repositorio
-        COPY . .
-
-        # Variables de entorno críticas para exponer la WebUI de forma remota en tu VPS
-        ENV PORT=3000
-        ENV NODE_ENV=production
-        ENV ALLOW_REMOTE=true
-        ENV DATA_DIR=/data
-
-        VOLUME ["/data"]
-        EXPOSE 3000
-
-        # En lugar de buscar el bundle compilado (.mjs), le decimos a Bun que orqueste directamente el entrypoint del servidor
-        CMD ["bun", "packages/server/src/index.ts"]
-    volumes:
-      - aionui-data:/data
+    image: ghcr.io/iofficeai/aionui-web:latest
+    container_name: aionui-server
+    restart: always
     ports:
       - "3000:3000"
     environment:
       - PORT=3000
       - NODE_ENV=production
       - ALLOW_REMOTE=true
+      - DATA_DIR=/data
+    volumes:
+      - aionui-data:/data
 
 volumes:
   aionui-data:
