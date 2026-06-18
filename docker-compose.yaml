@@ -5,50 +5,30 @@ services:
     build:
       context: .
       dockerfile_inline: |
-        FROM node:20-slim AS builder
+        FROM oven/bun:latest
         WORKDIR /app
 
-        # Instalar herramientas esenciales de compilación por si alguna dependencia nativa las requiere
+        # Instalar librerías básicas esenciales del sistema operativo
         RUN apt-get update && apt-get install -y --no-install-recommends \
+            libicu-dev \
             python3 \
             make \
             g++ \
             gcc \
             && rm -rf /var/lib/apt/lists/*
 
-        # Instalar bun
-        RUN npm install -g bun
-
-        # Copiar dependencias críticas de workspaces
+        # Copiar las configuraciones del monorrepo
         COPY package.json bun.lock ./
         COPY patches/ ./patches/
         COPY packages/ ./packages/
 
-        # Volvemos a ignorar scripts para evitar llamadas a Electron/Desktop, pero ahora tenemos entorno C++ listo si es necesario
-        RUN bun install --ignore-scripts
+        # Instalar todas las dependencias sin ignorar scripts por si los módulos de Rust/C++ los necesitan en ARM
+        RUN bun install
 
-        # Copiar código fuente
+        # Copiar el resto de los archivos del repositorio
         COPY . .
 
-        # Compilar únicamente el servidor y los servicios del backend de agentes (omitimos el empaquetado de Electron)
-        RUN node scripts/build-server.mjs
-
-        # ---- Runtime image ----
-        FROM oven/bun:latest AS runtime
-        WORKDIR /app
-
-        # Instalar librerías del sistema necesarias para OfficeCLI
-        RUN apt-get update && apt-get install -y --no-install-recommends libicu-dev && rm -rf /var/lib/apt/lists/*
-
-        # Copiar exclusivamente el backend empaquetado y las configuraciones base
-        COPY --from=builder /app/dist-server ./dist-server
-        COPY --from=builder /app/packages ./packages
-        COPY package.json bun.lock ./
-        COPY patches/ ./patches/
-
-        RUN bun install --production --ignore-scripts
-
-        # Configuración de producción para VPS Headless remoto
+        # Variables de entorno críticas para exponer la WebUI de forma remota en tu VPS
         ENV PORT=3000
         ENV NODE_ENV=production
         ENV ALLOW_REMOTE=true
@@ -57,7 +37,8 @@ services:
         VOLUME ["/data"]
         EXPOSE 3000
 
-        CMD ["bun", "dist-server/server.mjs"]
+        # En lugar de buscar el bundle compilado (.mjs), le decimos a Bun que orqueste directamente el entrypoint del servidor
+        CMD ["bun", "packages/server/src/index.ts"]
     volumes:
       - aionui-data:/data
     ports:
