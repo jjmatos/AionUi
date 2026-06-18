@@ -4,13 +4,13 @@ WORKDIR /app
 # Install bun
 RUN npm install -g bun
 
-# Install all dependencies (including devDeps for build)
-COPY package.json bun.lock ./
-COPY patches/ ./patches/
-RUN bun install --ignore-scripts
-
-# Copy source
+# CORRECCIÓN 1: Copiamos todo el proyecto primero.
+# Al ser un monorrepo, Bun necesita ver las carpetas de los workspaces 
+# (como @aionui/web-host) desde el primer momento para no fallar.
 COPY . .
+
+# Install all dependencies (including devDeps for build)
+RUN bun install --ignore-scripts
 
 # Build renderer (no Electron needed) and server bundle
 RUN bun run build:renderer:web
@@ -20,6 +20,9 @@ RUN node scripts/build-server.mjs
 FROM oven/bun:latest AS runtime
 WORKDIR /app
 
+# CORRECCIÓN 2: Evita las advertencias molestas de debconf en los logs de Coolify
+ENV DEBIAN_FRONTEND=noninteractive
+
 # officecli (the Office preview component, auto-installed at runtime by the
 # backend) is a .NET binary that aborts on startup without ICU, and Debian
 # base images don't ship it. libicu-dev is version-agnostic so it keeps
@@ -28,11 +31,15 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends libicu-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy only build artifacts and production deps
+# CORRECCIÓN 3: Copiamos la estructura limpia del proyecto en el runtime
+# para que 'bun install --production' pueda validar los workspaces sin romperse.
+COPY . .
+
+# Traemos los artefactos ya compilados desde el builder (sobrescribiendo las carpetas)
 COPY --from=builder /app/dist-server ./dist-server
 COPY --from=builder /app/out/renderer ./out/renderer
-COPY package.json bun.lock ./
-COPY patches/ ./patches/
+
+# Ahora sí, instalará únicamente las dependencias de producción de forma segura
 RUN bun install --production --ignore-scripts
 
 ENV PORT=3000
@@ -45,3 +52,5 @@ VOLUME ["/data"]
 EXPOSE 3000
 
 CMD ["bun", "dist-server/server.mjs"]
+
+
