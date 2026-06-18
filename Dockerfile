@@ -1,31 +1,33 @@
 FROM oven/bun:latest
 WORKDIR /app
 
-# Silenciar las advertencias interactivas de debconf en los logs de Coolify
+# Silenciar advertencias de debconf
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Instalar libicu-dev (requerido por el sistema interno) 
-# y Node.js (necesario porque el script de lanzamiento usa 'tsx' de Node)
+# Instalar dependencias del sistema esenciales + herramientas de descarga
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libicu-dev nodejs \
+    && apt-get install -y --no-install-recommends libicu-dev nodejs curl unzip ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # Copiar absolutamente todo el proyecto
 COPY . .
 
-# Instalar todas las dependencias (necesitamos mantenerlas completas para ejecutar el script .ts)
-RUN bun install --ignore-scripts
+# CORRECCIÓN CLAVE: Quitamos '--ignore-scripts' para permitir que el script 
+# 'postinstall.js' descargue el binario 'aioncore' correcto para tu arquitectura ARM.
+RUN bun install
 
-# Variables de entorno requeridas por AionUi
+# Otorgar permisos de ejecución por si acaso a los binarios descargados
+RUN chmod -R +x resources/bundled-aioncore/ 2>/dev/null || true
+
+# Variables de entorno requeridas
 ENV PORT=3000
 ENV NODE_ENV=production
 ENV ALLOW_REMOTE=true
 ENV DATA_DIR=/data
 
-# Volumen para la base de datos SQLite y persistencia
+# Volumen para persistencia de datos
 VOLUME ["/data"]
 EXPOSE 3000
 
-# CAMBIO CLAVE: Arrancamos la aplicación usando el script oficial de producción remota
-# que encontramos en tu package.json ("webui:prod:remote")
+# Arrancamos la aplicación
 CMD ["bun", "run", "webui:prod:remote"]
