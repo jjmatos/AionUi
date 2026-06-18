@@ -1,56 +1,51 @@
+# ---- Stage 1: Builder ----
 FROM node:20-slim AS builder
 WORKDIR /app
 
-# Install bun
+# Instalar bun de forma global
 RUN npm install -g bun
 
-# CORRECCIÓN 1: Copiamos todo el proyecto primero.
-# Al ser un monorrepo, Bun necesita ver las carpetas de los workspaces 
-# (como @aionui/web-host) desde el primer momento para no fallar.
+# COPIA COMPLETA: Crucial para que Bun detecte la estructura del monorrepo
 COPY . .
 
-# Install all dependencies (including devDeps for build)
+# Instalar todas las dependencias (incluyendo devDependencies para compilar)
 RUN bun install --ignore-scripts
 
-# Build renderer (no Electron needed) and server bundle
-RUN bun run build:renderer:web
+# Compilación unificada: Este script genera el servidor y la interfaz web integrada
 RUN node scripts/build-server.mjs
 
-# ---- Runtime image ----
+
+# ---- Stage 2: Runtime ----
 FROM oven/bun:latest AS runtime
 WORKDIR /app
 
-# CORRECCIÓN 2: Evita las advertencias molestas de debconf en los logs de Coolify
+# Silenciar las advertencias interactivas de debconf en los logs de Coolify
 ENV DEBIAN_FRONTEND=noninteractive
 
-# officecli (the Office preview component, auto-installed at runtime by the
-# backend) is a .NET binary that aborts on startup without ICU, and Debian
-# base images don't ship it. libicu-dev is version-agnostic so it keeps
-# resolving the right libicuNN when the base image bumps Debian releases.
+# Instalar dependencias del sistema necesarias para componentes internos de la app
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libicu-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# CORRECCIÓN 3: Copiamos la estructura limpia del proyecto en el runtime
-# para que 'bun install --production' pueda validar los workspaces sin romperse.
+# Copiar la estructura del monorrepo para validar dependencias de producción
 COPY . .
 
-# Traemos los artefactos ya compilados desde el builder (sobrescribiendo las carpetas)
+# Traer los artefactos limpios y compilados desde el Stage de Builder
 COPY --from=builder /app/dist-server ./dist-server
 COPY --from=builder /app/out/renderer ./out/renderer
 
-# Ahora sí, instalará únicamente las dependencias de producción de forma segura
+# Instalar únicamente las dependencias de producción de manera segura
 RUN bun install --production --ignore-scripts
 
+# Variables de entorno por defecto para el contenedor
 ENV PORT=3000
 ENV NODE_ENV=production
 ENV ALLOW_REMOTE=true
 ENV DATA_DIR=/data
 
-# SQLite data volume — mount with: -v $(pwd)/data:/data
+# Volumen para la base de datos SQLite y persistencia
 VOLUME ["/data"]
 EXPOSE 3000
 
+# Comando de inicio de la aplicación
 CMD ["bun", "dist-server/server.mjs"]
-
-
